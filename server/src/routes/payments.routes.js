@@ -1,37 +1,38 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
-const { createSnapTransaction } = require('../services/midtrans.service');
+const { createQrisCharge } = require('../services/midtrans.service');
 
-// POST buat Snap token untuk order tertentu
-router.post('/create-snap', async (req, res) => {
+router.post('/create-qris', async (req, res) => {
   try {
     const { order_code } = req.body;
 
-    const orderResult = await pool.query(
-      'SELECT * FROM orders WHERE order_code = $1',
-      [order_code]
-    );
+    const orderResult = await pool.query('SELECT * FROM orders WHERE order_code = $1', [order_code]);
     if (orderResult.rows.length === 0) {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
     const order = orderResult.rows[0];
 
-    const itemsResult = await pool.query(
-      'SELECT * FROM order_items WHERE order_id = $1',
+    // Cek kalau sudah pernah ada payment record untuk order ini (hindari duplikat charge)
+    const existingPayment = await pool.query(
+      'SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
       [order.id]
     );
+    if (existingPayment.rows.length > 0 && existingPayment.rows[0].transaction_status === 'pending') {
+      // Kembalikan data existing daripada charge ulang — Midtrans akan reject order_id duplikat
+      return res.json({ raw: existingPayment.rows[0].raw_notification });
+    }
 
-    const transaction = await createSnapTransaction(order, itemsResult.rows);
+    const itemsResult = await pool.query('SELECT * FROM order_items WHERE order_id = $1', [order.id]);
+    const chargeResponse = await createQrisCharge(order, itemsResult.rows);
 
-    // Simpan record awal di tabel payments, status masih 'pending'
     await pool.query(
-      `INSERT INTO payments (order_id, midtrans_order_id, payment_type, gross_amount, transaction_status)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [order.id, order.order_code, 'qris', order.total_amount, 'pending']
+      `INSERT INTO payments (order_id, midtrans_order_id, transaction_id, payment_type, gross_amount, transaction_status, raw_notification)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [order.id, order.order_code, chargeResponse.transaction_id, 'qris', order.total_amount, chargeResponse.transaction_status, JSON.stringify(chargeResponse)]
     );
 
-    res.json({ snap_token: transaction.token, redirect_url: transaction.redirect_url });
+    res.json({ raw: chargeResponse });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Gagal membuat transaksi pembayaran' });

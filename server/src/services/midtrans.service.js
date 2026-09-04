@@ -1,13 +1,14 @@
 const midtransClient = require('midtrans-client');
 require('dotenv').config();
 
-const snap = new midtransClient.Snap({
-  isProduction: false, // sandbox
+const coreApi = new midtransClient.CoreApi({
+  isProduction: false,
   serverKey: process.env.MIDTRANS_SERVER_KEY,
 });
 
-async function createSnapTransaction(order, items) {
+async function createQrisCharge(order, items) {
   const parameter = {
+    payment_type: 'qris',
     transaction_details: {
       order_id: order.order_code,
       gross_amount: order.total_amount,
@@ -16,17 +17,21 @@ async function createSnapTransaction(order, items) {
       id: item.product_id.toString(),
       price: item.price,
       quantity: item.quantity,
-      name: item.product_name.substring(0, 50), // Midtrans batasi max 50 char
+      name: item.product_name.substring(0, 50),
     })),
     customer_details: {
       first_name: order.buyer_name,
       phone: order.buyer_phone,
     },
-    enabled_payments: ['qris'], // batasi cuma QRIS, sesuai kebutuhanmu
+    qris: {
+      acquirer: 'gopay', // acquirer default sandbox
+    },
   };
 
-  const transaction = await snap.createTransaction(parameter);
-  return transaction; // berisi { token, redirect_url }
+  const chargeResponse = await coreApi.charge(parameter);
+  return chargeResponse;
+  // berisi: transaction_id, order_id, transaction_status, expiry_time,
+  // dan actions[] — salah satunya { name: 'generate-qr-code', url: '...' } = gambar QR
 }
 
-module.exports = { createSnapTransaction };
+module.exports = { createQrisCharge };
