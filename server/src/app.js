@@ -6,12 +6,10 @@ const pool = require('./config/db');
 const productsRoutes = require('./routes/products.routes');
 const ordersRoutes = require('./routes/orders.routes');
 const paymentsRoutes = require('./routes/payments.routes');
-app.use('/api/payments', paymentsRoutes);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
 
 // Route test — cek koneksi database jalan atau tidak
 app.get('/api/health', async (req, res) => {
@@ -28,6 +26,7 @@ const PORT = process.env.PORT || 5000;
 
 app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
