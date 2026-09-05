@@ -33,4 +33,21 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// PATCH update stok & ketersediaan produk
+router.patch('/:id/stock', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { stock, is_available } = req.body;
+    const result = await pool.query(
+      `UPDATE products SET stock = $1, is_available = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+      [stock, is_available, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ message: 'Produk tidak ditemukan' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal update stok' });
+  }
+});
+
 module.exports = router;

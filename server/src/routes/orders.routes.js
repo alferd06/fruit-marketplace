@@ -88,6 +88,52 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PATCH update status pengiriman
+router.patch('/:orderCode/status', async (req, res) => {
+  try {
+    const { orderCode } = req.params;
+    const { delivery_status } = req.body;
+    const validStatuses = ['menunggu_pembayaran', 'diproses', 'dikirim', 'selesai'];
+    if (!validStatuses.includes(delivery_status)) {
+      return res.status(400).json({ message: 'Status tidak valid' });
+    }
+    const result = await pool.query(
+      `UPDATE orders SET delivery_status = $1, updated_at = NOW() WHERE order_code = $2 RETURNING *`,
+      [delivery_status, orderCode]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ message: 'Order tidak ditemukan' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal update status' });
+  }
+});
+
+// GET semua order (untuk admin, sekalian join items ringkas)
+router.get('/', async (req, res) => {
+  try {
+    const ordersResult = await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 100');
+    const orders = ordersResult.rows;
+    const orderIds = orders.map((o) => o.id);
+    let itemsByOrder = {};
+    if (orderIds.length > 0) {
+      const itemsResult = await pool.query(
+        `SELECT * FROM order_items WHERE order_id = ANY($1::int[])`,
+        [orderIds]
+      );
+      itemsByOrder = itemsResult.rows.reduce((acc, item) => {
+        (acc[item.order_id] = acc[item.order_id] || []).push(item);
+        return acc;
+      }, {});
+    }
+    const withItems = orders.map((o) => ({ ...o, items: itemsByOrder[o.id] || [] }));
+    res.json(withItems);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal mengambil data order' });
+  }
+});
+
 // GET status order by order_code (untuk halaman status pesanan)
 const { getTransactionStatus } = require('../services/midtrans.service');
 
