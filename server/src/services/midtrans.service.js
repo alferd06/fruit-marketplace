@@ -34,4 +34,9 @@ async function createQrisCharge(order, items) {
   // dan actions[] — salah satunya { name: 'generate-qr-code', url: '...' } = gambar QR
 }
 
-module.exports = { createQrisCharge };
+async function getTransactionStatus(orderCode) {
+  const statusResponse = await coreApi.transaction.status(orderCode);
+  return statusResponse;
+}
+
+module.exports = { createQrisCharge, getTransactionStatus };

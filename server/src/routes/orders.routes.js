@@ -89,23 +89,40 @@ router.post('/', async (req, res) => {
 });
 
 // GET status order by order_code (untuk halaman status pesanan)
+const { getTransactionStatus } = require('../services/midtrans.service');
+
 router.get('/:orderCode', async (req, res) => {
   try {
     const { orderCode } = req.params;
-    const orderResult = await pool.query(
-      'SELECT * FROM orders WHERE order_code = $1',
-      [orderCode]
-    );
+    const orderResult = await pool.query('SELECT * FROM orders WHERE order_code = $1', [orderCode]);
     if (orderResult.rows.length === 0) {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
-    const order = orderResult.rows[0];
+    let order = orderResult.rows[0];
 
-    const itemsResult = await pool.query(
-      'SELECT * FROM order_items WHERE order_id = $1',
-      [order.id]
-    );
+    // Kalau masih menunggu pembayaran, cek langsung ke Midtrans (jaga-jaga webhook gagal)
+    if (order.delivery_status === 'menunggu_pembayaran') {
+      try {
+        const midtransStatus = await getTransactionStatus(orderCode);
+        if (midtransStatus.transaction_status === 'settlement') {
+          await pool.query(
+            `UPDATE payments SET transaction_status = 'settlement', updated_at = NOW() WHERE midtrans_order_id = $1`,
+            [orderCode]
+          );
+          await pool.query(
+            `UPDATE orders SET delivery_status = 'diproses', updated_at = NOW() WHERE order_code = $1`,
+            [orderCode]
+          );
+          const refreshed = await pool.query('SELECT * FROM orders WHERE order_code = $1', [orderCode]);
+          order = refreshed.rows[0];
+        }
+      } catch (midtransErr) {
+        console.error('Gagal cek status Midtrans:', midtransErr.message);
+        // Tidak apa-apa gagal di sini, tetap lanjut return data lokal
+      }
+    }
 
+    const itemsResult = await pool.query('SELECT * FROM order_items WHERE order_id = $1', [order.id]);
     res.json({ order, items: itemsResult.rows });
   } catch (err) {
     console.error(err);
